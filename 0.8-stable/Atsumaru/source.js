@@ -729,6 +729,7 @@ var _Sources = (() => {
   });
   var import_types = __toESM(require_lib());
   var DOMAIN = "https://atsu.moe";
+  var CDN_DOMAIN = "https://cdn.atsu.moe";
   var SEARCH_PAGE_SIZE = 20;
   var INFINITE_ENDPOINTS = {
     "trending-carousel": "trending",
@@ -748,7 +749,7 @@ var _Sources = (() => {
   var OLDEST_RELEASE_YEAR = 1970;
   var SHOW_ADULT_KEY = "show_adult";
   var AtsumaruInfo = {
-    version: "1.0.0",
+    version: "1.0.1",
     name: "Atsumaru",
     description: `Extension that pulls content from ${DOMAIN}`,
     author: "Lucifer's Circle",
@@ -1077,7 +1078,7 @@ var _Sources = (() => {
         `${DOMAIN}/api/read/chapter?mangaId=${encodeURIComponent(mangaId)}&chapterId=${encodeURIComponent(chapterId)}`
       );
       const pages = data.readChapter.pages.sort((a, b) => a.number - b.number).map(
-        (page) => page.image.startsWith("http") ? page.image : `${DOMAIN}${page.image}`
+        (page) => page.image.startsWith("http") ? page.image : `${CDN_DOMAIN}${page.image}`
       );
       return App.createChapterDetails({
         id: chapterId,
