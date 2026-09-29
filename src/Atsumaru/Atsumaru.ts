@@ -36,6 +36,7 @@ import {
 } from "./model";
 
 const DOMAIN = "https://atsu.moe";
+const CDN_DOMAIN = "https://cdn.atsu.moe";
 const SEARCH_PAGE_SIZE = 20;
 
 const INFINITE_ENDPOINTS: Record<string, string> = {
@@ -59,7 +60,7 @@ const OLDEST_RELEASE_YEAR = 1970;
 const SHOW_ADULT_KEY = "show_adult";
 
 export const AtsumaruInfo: SourceInfo = {
-  version: "1.0.0",
+  version: "1.0.1",
   name: "Atsumaru",
   description: `Extension that pulls content from ${DOMAIN}`,
   author: "Lucifer's Circle",
@@ -461,7 +462,7 @@ export class Atsumaru
     const pages = data.readChapter.pages
       .sort((a, b) => a.number - b.number)
       .map((page) =>
-        page.image.startsWith("http") ? page.image : `${DOMAIN}${page.image}`
+        page.image.startsWith("http") ? page.image : `${CDN_DOMAIN}${page.image}`
       );
 
     return App.createChapterDetails({
