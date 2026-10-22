@@ -24,7 +24,6 @@ import {
 import {
   AtsuAvailableFiltersResponse,
   AtsuChaptersResponse,
-  AtsuHomePageResponse,
   AtsuInfiniteResponse,
   AtsuMangaDetails,
   AtsuMangaItem,
@@ -38,14 +37,18 @@ import {
 const DOMAIN = "https://atsu.moe";
 const CDN_DOMAIN = "https://cdn.atsu.moe";
 const SEARCH_PAGE_SIZE = 20;
+const HOME_PAGE_LIMIT = 24;
 
-const INFINITE_ENDPOINTS: Record<string, string> = {
-  "trending-carousel": "trending",
-  "most-bookmarked": "mostBookmarked",
-  "recently-updated": "recentlyUpdated",
-  popular: "popular",
-  "recently-added": "recentlyAdded",
+const HOME_SECTION_ENDPOINTS: Record<string, { endpoint: string; params: string }> = {
+  "hot-updates": { endpoint: "hotUpdates", params: "" },
+  "recently-updated": { endpoint: "recentlyUpdated", params: "" },
+  popular: { endpoint: "popular", params: "timeframe=daily&" },
+  rising: { endpoint: "rising", params: "" },
+  "hot-arrivals": { endpoint: "hotArrivals", params: "" },
 };
+
+const BASE_FILTER_PARAMS_ADULT = "types=Manga%2CManwha%2CManhua%2COEL%2COther&mediums=Comic%2CNovel&contentRatings=Safe%2CSuggestive%2CErotica";
+const BASE_FILTER_PARAMS_SAFE = "types=Manga%2CManwha%2CManhua%2COEL%2COther&mediums=Comic%2CNovel&contentRatings=Safe%2CSuggestive";
 
 const SORT_OPTIONS: Array<{ id: string; label: string }> = [
   { id: "views:desc", label: "Popularity" },
@@ -60,7 +63,7 @@ const OLDEST_RELEASE_YEAR = 1970;
 const SHOW_ADULT_KEY = "show_adult";
 
 export const AtsumaruInfo: SourceInfo = {
-  version: "1.0.1",
+  version: "1.0.2",
   name: "Atsumaru",
   description: `Extension that pulls content from ${DOMAIN}`,
   author: "Lucifer's Circle",
@@ -124,49 +127,86 @@ export class Atsumaru
   async getHomePageSections(
     sectionCallback: (section: HomeSection) => void
   ): Promise<void> {
-    const data = await this.fetchJSON<AtsuHomePageResponse>(
-      `${DOMAIN}/api/home/page${(await this.getShowAdult()) ? "?adult=1" : ""}`
-    );
+    const showAdult = await this.getShowAdult();
+    const baseParams = showAdult ? BASE_FILTER_PARAMS_ADULT : BASE_FILTER_PARAMS_SAFE;
+    const fullBaseParams = `${baseParams}&limit=${HOME_PAGE_LIMIT}&offset=0`;
 
-    for (const section of data.homePage.sections) {
-      if (section.layout !== "carousel" || section.key === "hot-updates") {
-        continue;
-      }
-
-      sectionCallback(
-        App.createHomeSection({
-          id: section.key,
-          title: section.title ?? "Unknown",
-          type:
-            section.key === "trending-carousel"
-              ? HomeSectionType.featured
-              : HomeSectionType.singleRowNormal,
-          items: (section.items ?? []).map((item) => this.createPartialManga(item)),
-          containsMoreItems: section.key in INFINITE_ENDPOINTS,
-        })
+    for (const [sectionKey, config] of Object.entries(HOME_SECTION_ENDPOINTS)) {
+      const data = await this.fetchJSON<AtsuInfiniteResponse>(
+        `${DOMAIN}/api/home2/${config.endpoint}?${config.params}${fullBaseParams}`
       );
+
+      if (data.items && data.items.length > 0) {
+        sectionCallback(
+          App.createHomeSection({
+            id: sectionKey,
+            title: this.getSectionTitle(sectionKey),
+            type:
+              sectionKey === "hot-updates"
+                ? HomeSectionType.singleRowNormal
+                : HomeSectionType.singleRowNormal,
+            items: data.items.map((item) => this.createPartialManga(item)),
+            containsMoreItems: true,
+          })
+        );
+      }
     }
+
+    // Fetch announcements separately
+    try {
+      const announcements = await this.fetchJSON<{ announcements: AtsuMangaItem[] }>(
+        `${DOMAIN}/api/home2/announcement?${fullBaseParams}`
+      );
+      if (announcements.announcements?.length > 0) {
+        sectionCallback(
+          App.createHomeSection({
+            id: "announcements",
+            title: "Announcements",
+            type: HomeSectionType.singleRowNormal,
+            items: announcements.announcements.map((item) => this.createPartialManga(item)),
+            containsMoreItems: false,
+          })
+        );
+      }
+    } catch {
+      // Ignore announcement fetch errors
+    }
+  }
+
+  private getSectionTitle(key: string): string {
+    const titles: Record<string, string> = {
+      "hot-updates": "Hot Updates",
+      "recently-updated": "Recently Updated",
+      popular: "Popular (Daily)",
+      rising: "Rising",
+      "hot-arrivals": "Hot Arrivals",
+    };
+    return titles[key] ?? key;
   }
 
   async getViewMoreItems(
     homepageSectionId: string,
     metadata: AtsumaruMetadata | undefined
   ): Promise<PagedResults> {
-    const endpoint = INFINITE_ENDPOINTS[homepageSectionId];
-    if (!endpoint) {
+    const config = HOME_SECTION_ENDPOINTS[homepageSectionId];
+    if (!config) {
       return App.createPagedResults({ results: [] });
     }
 
-    const page = metadata?.page ?? 0;
+    const offset = metadata?.page ?? 0;
+    const showAdult = await this.getShowAdult();
+    const baseParams = showAdult ? BASE_FILTER_PARAMS_ADULT : BASE_FILTER_PARAMS_SAFE;
+    const params = `${config.params}${baseParams}&limit=${HOME_PAGE_LIMIT}&offset=${offset * HOME_PAGE_LIMIT}`;
+
     const data = await this.fetchJSON<AtsuInfiniteResponse>(
-      `${DOMAIN}/api/infinite/${endpoint}?page=${page}&types=${encodeURIComponent("Manga,Manwha,Manhua")}${(await this.getShowAdult()) ? "&adult=1" : ""}`
+      `${DOMAIN}/api/home2/${config.endpoint}?${params}`
     );
 
     const results = data.items.map((item) => this.createPartialManga(item));
 
     return App.createPagedResults({
       results,
-      metadata: results.length > 0 ? { page: page + 1 } : undefined,
+      metadata: results.length > 0 ? { page: offset + 1 } : undefined,
     });
   }
 
