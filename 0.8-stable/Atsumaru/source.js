@@ -731,13 +731,16 @@ var _Sources = (() => {
   var DOMAIN = "https://atsu.moe";
   var CDN_DOMAIN = "https://cdn.atsu.moe";
   var SEARCH_PAGE_SIZE = 20;
-  var INFINITE_ENDPOINTS = {
-    "trending-carousel": "trending",
-    "most-bookmarked": "mostBookmarked",
-    "recently-updated": "recentlyUpdated",
-    popular: "popular",
-    "recently-added": "recentlyAdded"
+  var HOME_PAGE_LIMIT = 24;
+  var HOME_SECTION_ENDPOINTS = {
+    "hot-updates": { endpoint: "hotUpdates", params: "" },
+    "recently-updated": { endpoint: "recentlyUpdated", params: "" },
+    popular: { endpoint: "popular", params: "timeframe=daily&" },
+    rising: { endpoint: "rising", params: "" },
+    "hot-arrivals": { endpoint: "hotArrivals", params: "" }
   };
+  var BASE_FILTER_PARAMS_ADULT = "types=Manga%2CManwha%2CManhua%2COEL%2COther&mediums=Comic%2CNovel&contentRatings=Safe%2CSuggestive%2CErotica";
+  var BASE_FILTER_PARAMS_SAFE = "types=Manga%2CManwha%2CManhua%2COEL%2COther&mediums=Comic%2CNovel&contentRatings=Safe%2CSuggestive";
   var SORT_OPTIONS = [
     { id: "views:desc", label: "Popularity" },
     { id: "trending:desc", label: "Trending" },
@@ -749,7 +752,7 @@ var _Sources = (() => {
   var OLDEST_RELEASE_YEAR = 1970;
   var SHOW_ADULT_KEY = "show_adult";
   var AtsumaruInfo = {
-    version: "1.0.1",
+    version: "1.0.2",
     name: "Atsumaru",
     description: `Extension that pulls content from ${DOMAIN}`,
     author: "Lucifer's Circle",
@@ -798,37 +801,69 @@ var _Sources = (() => {
       });
     }
     async getHomePageSections(sectionCallback) {
-      const data = await this.fetchJSON(
-        `${DOMAIN}/api/home/page${await this.getShowAdult() ? "?adult=1" : ""}`
-      );
-      for (const section of data.homePage.sections) {
-        if (section.layout !== "carousel" || section.key === "hot-updates") {
-          continue;
-        }
-        sectionCallback(
-          App.createHomeSection({
-            id: section.key,
-            title: section.title ?? "Unknown",
-            type: section.key === "trending-carousel" ? import_types.HomeSectionType.featured : import_types.HomeSectionType.singleRowNormal,
-            items: (section.items ?? []).map((item) => this.createPartialManga(item)),
-            containsMoreItems: section.key in INFINITE_ENDPOINTS
-          })
+      const showAdult = await this.getShowAdult();
+      const baseParams = showAdult ? BASE_FILTER_PARAMS_ADULT : BASE_FILTER_PARAMS_SAFE;
+      const fullBaseParams = `${baseParams}&limit=${HOME_PAGE_LIMIT}&offset=0`;
+      for (const [sectionKey, config] of Object.entries(HOME_SECTION_ENDPOINTS)) {
+        const data = await this.fetchJSON(
+          `${DOMAIN}/api/home2/${config.endpoint}?${config.params}${fullBaseParams}`
         );
+        if (data.items && data.items.length > 0) {
+          sectionCallback(
+            App.createHomeSection({
+              id: sectionKey,
+              title: this.getSectionTitle(sectionKey),
+              type: sectionKey === "hot-updates" ? import_types.HomeSectionType.singleRowNormal : import_types.HomeSectionType.singleRowNormal,
+              items: data.items.map((item) => this.createPartialManga(item)),
+              containsMoreItems: true
+            })
+          );
+        }
+      }
+      try {
+        const announcements = await this.fetchJSON(
+          `${DOMAIN}/api/home2/announcement?${fullBaseParams}`
+        );
+        if (announcements.announcements?.length > 0) {
+          sectionCallback(
+            App.createHomeSection({
+              id: "announcements",
+              title: "Announcements",
+              type: import_types.HomeSectionType.singleRowNormal,
+              items: announcements.announcements.map((item) => this.createPartialManga(item)),
+              containsMoreItems: false
+            })
+          );
+        }
+      } catch {
       }
     }
+    getSectionTitle(key) {
+      const titles = {
+        "hot-updates": "Hot Updates",
+        "recently-updated": "Recently Updated",
+        popular: "Popular (Daily)",
+        rising: "Rising",
+        "hot-arrivals": "Hot Arrivals"
+      };
+      return titles[key] ?? key;
+    }
     async getViewMoreItems(homepageSectionId, metadata) {
-      const endpoint = INFINITE_ENDPOINTS[homepageSectionId];
-      if (!endpoint) {
+      const config = HOME_SECTION_ENDPOINTS[homepageSectionId];
+      if (!config) {
         return App.createPagedResults({ results: [] });
       }
-      const page = metadata?.page ?? 0;
+      const offset = metadata?.page ?? 0;
+      const showAdult = await this.getShowAdult();
+      const baseParams = showAdult ? BASE_FILTER_PARAMS_ADULT : BASE_FILTER_PARAMS_SAFE;
+      const params = `${config.params}${baseParams}&limit=${HOME_PAGE_LIMIT}&offset=${offset * HOME_PAGE_LIMIT}`;
       const data = await this.fetchJSON(
-        `${DOMAIN}/api/infinite/${endpoint}?page=${page}&types=${encodeURIComponent("Manga,Manwha,Manhua")}${await this.getShowAdult() ? "&adult=1" : ""}`
+        `${DOMAIN}/api/home2/${config.endpoint}?${params}`
       );
       const results = data.items.map((item) => this.createPartialManga(item));
       return App.createPagedResults({
         results,
-        metadata: results.length > 0 ? { page: page + 1 } : void 0
+        metadata: results.length > 0 ? { page: offset + 1 } : void 0
       });
     }
     async getSearchTags() {
